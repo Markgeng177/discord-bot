@@ -304,6 +304,9 @@ async def most_command(ctx, date_range: str = None, top_x: str = "10"):
         return
 
     try:
-        from_str, to_str = date_range.split("-")
-        start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
-        end_date = datetime.strptime(to_date, "%d%b%Y")
+    from_str, to_str = date_range.split("-")
+    start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
+    end_date = datetime.strptime(to_str.strip(), "%d%b%Y")
+except ValueError:
+    await message.channel.send("❌ Invalid date format. Use this format: `25May2025-26May2025`")
+    return
