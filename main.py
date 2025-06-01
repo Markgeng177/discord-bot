@@ -299,15 +299,49 @@ async def work_command(ctx, *args):
 async def most_command(ctx, date_range: str = None, top_x: str = "10"):
     if not date_range:
         await ctx.send(
-            "Please provide date range and number. Ex: !most 25may2025-26may2025 10"
+            "Please provide date range and number. Ex: !most 25May2025-26May2025 10"
         )
         return
 
     try:
-    from_str, to_str = date_range.split("-")
-    start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
-    end_date = datetime.strptime(to_str.strip(), "%d%b%Y")
-except ValueError:
-    await message.channel.send("❌ Invalid date format. Use this format: `25May2025-26May2025`")
-    return
+        from_str, to_str = date_range.split("-")
+        start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
+        end_date = datetime.strptime(to_str.strip(), "%d%b%Y")
+    except ValueError:
+        await ctx.send("❌ Invalid date format. Use this format: `25May2025-26May2025`")
+        return
 
+    data = sheet.get_all_records()
+    game_counts = {}
+
+    for row in data:
+        try:
+            sheet_year = int(row['Year'])
+            if sheet_year < 100:
+                sheet_year += 2000
+            sheet_date = int(row['Date'])
+            sheet_month = row['Month'].strip()
+            sheet_date_obj = datetime.strptime(f"{sheet_date} {sheet_month} {sheet_year}", "%d %B %Y")
+        except:
+            continue
+
+        if start_date <= sheet_date_obj <= end_date:
+            game = row['Game'].strip()
+            if game:
+                game_counts[game] = game_counts.get(game, 0) + 1
+
+    if not game_counts:
+        await ctx.send("No data found in the specified range.")
+        return
+
+    try:
+        top_n = int(top_x)
+    except ValueError:
+        top_n = 10
+
+    sorted_games = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)
+    response_lines = [f"📊 Top {top_n} Games from {from_str} to {to_str}"]
+    for i, (game, count) in enumerate(sorted_games[:top_n], start=1):
+        response_lines.append(f"{i}. {game} ({count})")
+
+    await ctx.send("\n".join(response_lines))
