@@ -6,18 +6,14 @@ from threading import Thread
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
+import asyncio
 
 # --- Keep-alive web server for UptimeRobot and Webhook Receiver ---
 app = Flask('')
 
-
 @app.route('/')
 def home():
     return "Bot is alive!"
-
-
-import asyncio  # Add this at the top if not already
-
 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
@@ -68,15 +64,7 @@ def handle_webhook():
                     elif line.lower().startswith("branch:"):
                         msg_branch = line.split(":", 1)[1].strip().lower()
 
-                print(
-                    f"Checking message ID {msg.id} with game='{msg_game}' and branch='{msg_branch}'"
-                )
-                print(
-                    f"Looking for game='{game.lower().strip()}' and branch='{branch.lower().strip()}'"
-                )
-
-                if msg_game == game.lower().strip(
-                ) and msg_branch == branch.lower().strip():
+                if msg_game == game.lower().strip() and msg_branch == branch.lower().strip():
                     updated = f"~~{msg.content}~~\n⭐️{name}"
                     await msg.edit(content=updated)
                     print(f"Edited message ID: {msg.id}")
@@ -97,7 +85,6 @@ def handle_webhook():
                 if not edited:
                     print("No matching message found to edit.")
 
-        # 🔧 Call the async function properly:
         asyncio.run_coroutine_threadsafe(process_message(), bot.loop)
 
         return '', 200
@@ -319,70 +306,4 @@ async def most_command(ctx, date_range: str = None, top_x: str = "10"):
     try:
         from_str, to_str = date_range.split("-")
         start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
-        end_date = datetime.strptime(to_str.strip(), "%d%b%Y")
-    except:
-        await ctx.send("Invalid date range format. Use 25may2025-26may2025.")
-        return
-
-    try:
-        x = int(top_x)
-    except:
-        await ctx.send("Invalid number for top X games.")
-        return
-
-    data = sheet.get_all_records()
-    game_counter = {}
-
-    for row in data:
-        try:
-            y = int(row['Year'])
-            if y < 100:
-                y += 2000
-            d = int(row['Date'])
-            m = row['Month'].strip()
-            row_date = datetime.strptime(f"{d}{m}{y}", "%d%B%Y")
-        except:
-            continue
-
-        if start_date <= row_date <= end_date:
-            g = row['Game']
-            game_counter[g] = game_counter.get(g, 0) + 1
-
-    sorted_games = sorted(game_counter.items(),
-                          key=lambda kv: kv[1],
-                          reverse=True)
-    top_games = sorted_games[:x]
-
-    if not top_games:
-        await ctx.send("No game data found in this date range.")
-        return
-
-    response_lines = [
-        f"Top {x} games from {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}:"
-    ]
-    for g, count in top_games:
-        response_lines.append(f"{g}: {count}")
-
-    await ctx.send("\n".join(response_lines))
-
-
-@bot.command()
-async def help(ctx):
-    help_text = """
-**Commands:**
-!w [name] - Show today's work for name.
-!w y [name] - Show yesterday's work for name.
-!w [date] [name] - Show work for name on specific date (format 25May2025).
-!w all - Show all today's work.
-!w y all - Show all yesterday's work.
-!w [date] all - Show all work on specific date.
-!most [date1-date2] [top_x] - Show top x games in date range. E.g. !most 25May2025-26May2025 10
-"""
-    await ctx.send(help_text)
-
-
-# --- Run the keep-alive server ---
-keep_alive()
-
-# --- Run Discord bot ---
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+        end_date = datetime.strptime(to
