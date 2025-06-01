@@ -7,6 +7,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import asyncio
+import json
 
 # --- Keep-alive web server for UptimeRobot and Webhook Receiver ---
 app = Flask('')
@@ -107,8 +108,14 @@ scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
-creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "credentials.json", scope)
+
+# Load credentials JSON from environment variable and parse it
+creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+if not creds_json_str:
+    raise Exception("Environment variable GOOGLE_CREDENTIALS_JSON not set!")
+
+creds_dict = json.loads(creds_json_str)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("NFC").worksheet("Sheet1")
 
@@ -330,18 +337,39 @@ async def most_command(ctx, date_range: str = None, top_x: str = "10"):
             if game:
                 game_counts[game] = game_counts.get(game, 0) + 1
 
-    if not game_counts:
-        await ctx.send("No data found in the specified range.")
+    top_count = int(top_x)
+    sorted_games = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)[:top_count]
+
+    if not sorted_games:
+        await ctx.send("No games found in that date range.")
         return
 
-    try:
-        top_n = int(top_x)
-    except ValueError:
-        top_n = 10
-
-    sorted_games = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)
-    response_lines = [f"📊 Top {top_n} Games from {from_str} to {to_str}"]
-    for i, (game, count) in enumerate(sorted_games[:top_n], start=1):
-        response_lines.append(f"{i}. {game} ({count})")
+    response_lines = [f"📊 Top {top_count} most frequent games from {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}:"]
+    for game, count in sorted_games:
+        response_lines.append(f"{game} ({count})")
 
     await ctx.send("\n".join(response_lines))
+
+
+@bot.command(name="help")
+async def help_command(ctx):
+    help_text = (
+        "Help command:\n"
+        "`!w <name>` - Show today's work for a name.\n"
+        "`!w y <name>` - Show yesterday's work for a name.\n"
+        "`!w <ddMMMyyyy> <name>` - Show work for a name on a specific date.\n"
+        "`!w all` - Show all work today.\n"
+        "`!most <startdate-enddate> <number>` - Show top games in the date range.\n"
+        "`!ping` - Ping the bot."
+    )
+    await ctx.send(help_text)
+
+
+keep_alive()
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name} - {bot.user.id}')
+
+
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))
