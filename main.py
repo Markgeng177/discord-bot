@@ -306,4 +306,4 @@ async def most_command(ctx, date_range: str = None, top_x: str = "10"):
     try:
         from_str, to_str = date_range.split("-")
         start_date = datetime.strptime(from_str.strip(), "%d%b%Y")
-        end_date = datetime.strptime(to
+        end_date = datetime.strptime(to_date, "%d%b%Y")
