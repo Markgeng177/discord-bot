@@ -250,56 +250,7 @@ async def ping(ctx):
     await ctx.send('Pong!')
 
 
-@bot.command(name='w')
-async def work_command(ctx, *args):
-    now = datetime.now()
 
-    def parse_date_str(dstr):
-        try:
-            return datetime.strptime(dstr, "%d%b%Y")
-        except ValueError:
-            return None
-
-    if len(args) == 0:
-        await ctx.send("Please provide a name, date, or 'all'.")
-        return
-
-    first = args[0].lower()
-
-    if first == "all":
-        await send_work_for_all(ctx, now)
-        return
-    elif first == "y" and len(args) > 1 and args[1].lower() == "all":
-        yesterday = now - timedelta(days=1)
-        await send_work_for_all(ctx, yesterday)
-        return
-    elif parse_date_str(first) and len(args) > 1 and args[1].lower() == "all":
-        target_date = parse_date_str(first)
-        await send_work_for_all(ctx, target_date)
-        return
-
-    if first == "y" and len(args) > 1:
-        name = " ".join(args[1:])
-        yesterday = now - timedelta(days=1)
-        resp = await send_work_for_name(ctx, name, yesterday)
-        await ctx.send(
-            resp
-            or f"No work found for {name} on {yesterday.strftime('%d %b %Y')}."
-        )
-        return
-
-    if parse_date_str(first) and len(args) > 1:
-        target_date = parse_date_str(first)
-        name = " ".join(args[1:])
-        resp = await send_work_for_name(ctx, name, target_date)
-        await ctx.send(
-            resp or
-            f"No work found for {name} on {target_date.strftime('%d %b %Y')}.")
-        return
-
-    name = " ".join(args)
-    resp = await send_work_for_name(ctx, name, now)
-    await ctx.send(resp or f"No work found for {name} today.")
 
 
 @bot.command(name="most")
