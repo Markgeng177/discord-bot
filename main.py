@@ -323,100 +323,84 @@ keep_alive()
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
 
+from datetime import datetime
+from collections import defaultdict, OrderedDict
+
 @bot.command()
-async def w(ctx, *, name_query):
+async def w(ctx, *, arg):
     sheet = client.open('NFC').worksheet('Sheet1')
-    data = sheet.get_all_values()[1:]  # skip header
+    data = sheet.get_all_values()[1:]  # Skip header
+
+    parts = arg.strip().split()
+    try:
+        # Try to parse custom date if provided
+        custom_date = None
+        if len(parts) >= 2 and len(parts[0]) == 9:
+            try:
+                custom_date = datetime.strptime(parts[0], "%d%b%Y").date()
+                name_query = ' '.join(parts[1:])
+            except:
+                name_query = arg.strip()
+        else:
+            name_query = arg.strip()
+    except:
+        name_query = arg.strip()
 
     now = datetime.now()
-    today = now.date()
+    today = custom_date if 'custom_date' in locals() and custom_date else now.date()
 
-    category_order = [
-        'สอนเกม',
-        'ซ่อมซอง',
-        'ซ่อมห่อปก',
-        'เรียนเกม',
-        '[แจ้ง] ซ่อมซอง',
-        '[แจ้ง] ซ่อมปก',
+    found = False
+    work_dict = defaultdict(list)
+
+    for row in data:
+        try:
+            row_name = row[3].strip()
+            row_work = row[4].strip()
+            row_game = row[1].strip()
+            timestamp_str = row[0].strip()
+
+            if row_name != name_query:
+                continue
+
+            timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+            if timestamp.date() != today:
+                continue
+
+            if not row_work:
+                category = "สอนเกม"
+            else:
+                category = row_work
+
+            work_dict[category].append(row_game)
+            found = True
+        except Exception as e:
+            print("Row error:", row, e)
+            continue
+
+    if not found:
+        await ctx.send(f"ไม่พบงานของ {arg.strip()} วันนี้.")
+        return
+
+    # Ordered output
+    ordered_categories = [
+        "สอนเกม", "ซ่อมซอง", "ซ่อมห่อปก", "เรียนเกม", "[แจ้ง] ซ่อมซอง", "[แจ้ง] ซ่อมปก"
     ]
+    ordered_work = OrderedDict()
+    for cat in ordered_categories:
+        if cat in work_dict:
+            ordered_work[cat] = work_dict[cat]
+    for cat in work_dict:
+        if cat not in ordered_work:
+            ordered_work[cat] = work_dict[cat]
 
-    def process_entries(entries):
-        work_dict = defaultdict(list)
-        for row in entries:
-            try:
-                game = row[1].strip()
-                work = row[4].strip()
+    response = f"📋 งานของ {name_query} วันที่ {today.strftime('%d/%m/%Y')}:\n"
+    for category, games in ordered_work.items():
+        response += f"{category} [{len(games)}]\n"
+        for game in games:
+            response += f"{game}\n"
 
-                if work == '':
-                    category = 'สอนเกม'
-                else:
-                    category = work
+    await ctx.send(response)
 
-                work_dict[category].append(game)
-            except:
-                continue
-
-        # Ordered output
-        ordered = OrderedDict()
-        for cat in category_order:
-            if cat in work_dict:
-                ordered[cat] = work_dict[cat]
-        for cat in work_dict:
-            if cat not in ordered:
-                ordered[cat] = work_dict[cat]
-        return ordered
-
-    results = ""
-
-    if name_query.strip().lower() == "all":
-        # Build a name -> list of rows map
-        name_map = defaultdict(list)
-        for row in data:
-            try:
-                row_name = row[3].strip()
-                timestamp_str = row[0].strip()
-                timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-                if timestamp.date() == today:
-                    name_map[row_name].append(row)
-            except:
-                continue
-
-        if not name_map:
-            await ctx.send("ไม่พบงานของทุกคนวันนี้.")
-            return
-
-        for name, entries in name_map.items():
-            grouped = process_entries(entries)
-            results += f"\n📋 งานของ {name} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
-            for cat, games in grouped.items():
-                results += f"{cat} [{len(games)}]\n"
-                for g in games:
-                    results += f"{g}\n"
-    else:
-        name = name_query.strip()
-        entries = []
-        for row in data:
-            try:
-                row_name = row[3].strip()
-                timestamp_str = row[0].strip()
-                timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-                if row_name == name and timestamp.date() == today:
-                    entries.append(row)
-            except:
-                continue
-
-        if not entries:
-            await ctx.send(f"ไม่พบงานของ {name} วันนี้.")
-            return
-
-        grouped = process_entries(entries)
-        results += f"📋 งานของ {name} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
-        for cat, games in grouped.items():
-            results += f"{cat} [{len(games)}]\n"
-            for g in games:
-                results += f"{g}\n"
-
-    await ctx.send(results)
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
