@@ -377,9 +377,9 @@ async def w(ctx, *, arg):
             print("Row error:", row, e)
             continue
 
-  if not work_dict:
-    await ctx.send(f"ไม่พบงานของ {name_query} วันที่ {today.strftime('%d/%m/%Y')}.")
-    return
+   if not work_dict:
+        await ctx.send(f"ไม่พบงานของ {name_query} วันที่ {today.strftime('%d/%m/%Y')}.")
+        return
 
     # Ordered output
     ordered_categories = [
