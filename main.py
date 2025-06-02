@@ -6,6 +6,7 @@ from threading import Thread
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
+from collections import defaultdict, OrderedDict
 import asyncio
 import json
 
@@ -322,42 +323,68 @@ keep_alive()
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
 
-@bot.command()
+@bot.command(name="w")
 async def w(ctx, *, name_query):
     sheet = client.open('NFC').worksheet('Sheet1')
-    data = sheet.get_all_values()[1:]  # skip header
+    data = sheet.get_all_values()[1:]  # skip header row
 
     now = datetime.now()
     today = now.date()
 
-    found = False
-    response = f"📋 งานของ {name_query.strip()} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+    categories = defaultdict(list)
+
+    # Category order (add new ones after if not listed)
+    category_priority = [
+        "สอนเกม",
+        "ซ่อมซอง",
+        "ซ่อมห่อปก",
+        "เรียนเกม",
+        "[แจ้ง] ซ่อมซอง",
+        "[แจ้ง] ซ่อมปก"
+    ]
 
     for row in data:
         try:
-            row_name = row[3].strip()
-            row_work = row[4].strip()
             timestamp_str = row[0].strip()
+            game = row[1].strip()
+            row_name = row[3].strip()
+            work = row[4].strip() if len(row) > 4 else ""
 
-            if row_name != name_query.strip():
-                continue
-
-            # Parse timestamp (assumes MM/DD/YYYY HH:MM:SS)
+            # Skip if not today's entry
             timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
             if timestamp.date() != today:
                 continue
 
-            if row_work:
-                response += f"- {row_work}\n"
-                found = True
+            if row_name != name_query.strip():
+                continue
+
+            category = work if work else "สอนเกม"
+            categories[category].append(game)
+
         except Exception as e:
             print("Row error:", row, e)
             continue
 
-    if not found:
-        response = f"ไม่พบงานของ {name_query.strip()} วันนี้."
+    if not categories:
+        await ctx.send(f"ไม่พบงานของ {name_query.strip()} วันนี้.")
+        return
+
+    # Build response message
+    response = f"📋 งานของ {name_query.strip()} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+
+    # Sort categories by defined order
+    ordered = OrderedDict()
+    for cat in category_priority:
+        if cat in categories:
+            ordered[cat] = categories.pop(cat)
+    for cat, games in categories.items():
+        ordered[cat] = games  # add remaining categories not in priority list
+
+    for cat, games in ordered.items():
+        response += f"{cat} [{len(games)}]\n"
+        for g in games:
+            response += f"{g}\n"
 
     await ctx.send(response)
-
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
