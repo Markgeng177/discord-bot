@@ -371,5 +371,42 @@ keep_alive()
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
 
+@bot.command()
+async def w(ctx, *, name_query):
+    sheet = client.open('NFC').worksheet('Sheet1')
+    data = sheet.get_all_values()[1:]  # skip header
+
+    now = datetime.now()
+    today = now.date()
+
+    found = False
+    response = f"📋 งานของ {name_query.strip()} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+
+    for row in data:
+        try:
+            row_name = row[3].strip()
+            row_work = row[4].strip()
+            timestamp_str = row[0].strip()
+
+            if row_name != name_query.strip():
+                continue
+
+            # Parse timestamp (assumes MM/DD/YYYY HH:MM:SS)
+            timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+            if timestamp.date() != today:
+                continue
+
+            if row_work:
+                response += f"- {row_work}\n"
+                found = True
+        except Exception as e:
+            print("Row error:", row, e)
+            continue
+
+    if not found:
+        response = f"ไม่พบงานของ {name_query.strip()} วันนี้."
+
+    await ctx.send(response)
+
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
