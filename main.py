@@ -5,10 +5,11 @@ from flask import Flask, request
 from threading import Thread
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict, OrderedDict
 import asyncio
 import json
+import re
 
 # --- Keep-alive web server for UptimeRobot and Webhook Receiver ---
 app = Flask('')
@@ -329,72 +330,65 @@ from collections import defaultdict, OrderedDict
 @bot.command()
 async def w(ctx, *, arg):
     sheet = client.open('NFC').worksheet('Sheet1')
-    data = sheet.get_all_values()[1:]  # Skip header
+    data = sheet.get_all_values()[1:]  # skip header
 
+    # Check if the user supplied a specific date
     parts = arg.strip().split()
     try:
-        # Try to parse custom date if provided
-        custom_date = None
-        if len(parts) >= 2 and len(parts[0]) == 9:
-            try:
-                custom_date = datetime.strptime(parts[0], "%d%b%Y").date()
-                name_query = ' '.join(parts[1:])
-            except:
-                name_query = arg.strip()
+        if len(parts) > 1 and re.match(r"\d{1,2}[a-zA-Z]{3,9}\d{4}", parts[0]):
+            date_part = parts[0]
+            name_query = " ".join(parts[1:])
+            date_obj = datetime.strptime(date_part, "%d%b%Y").date()
         else:
             name_query = arg.strip()
-    except:
-        name_query = arg.strip()
+            date_obj = datetime.now().date()
+    except Exception as e:
+        await ctx.send(f"❌ ไม่สามารถแปลงวันที่จาก `{parts[0]}` ได้ กรุณาใช้รูปแบบ 27May2025")
+        return
 
-    now = datetime.now()
-    today = custom_date if 'custom_date' in locals() and custom_date else now.date()
+    # Work categories in desired display order
+    category_order = [
+        "สอนเกม", "ซ่อมซอง", "ซ่อมห่อปก", "เรียนเกม",
+        "[แจ้ง] ซ่อมซอง", "[แจ้ง] ซ่อมปก"
+    ]
 
-    found = False
     work_dict = defaultdict(list)
 
     for row in data:
         try:
-            row_name = row[3].strip()
-            row_work = row[4].strip()
-            row_game = row[1].strip()
             timestamp_str = row[0].strip()
-
-            if row_name != name_query:
-                continue
+            game = row[1].strip()
+            name = row[3].strip()
+            work = row[4].strip()
 
             timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-            if timestamp.date() != today:
+            if timestamp.date() != date_obj:
+                continue
+            if name != name_query:
                 continue
 
-            if not row_work:
-                category = "สอนเกม"
-            else:
-                category = row_work
-
-            work_dict[category].append(row_game)
-            found = True
+            category = "สอนเกม" if not work else work
+            work_dict[category].append(game)
         except Exception as e:
             print("Row error:", row, e)
             continue
 
-   if not work_dict:
-        await ctx.send(f"ไม่พบงานของ {name_query} วันที่ {today.strftime('%d/%m/%Y')}.")
+    if not work_dict:
+        await ctx.send(f"ไม่พบงานของ {name_query} วันที่ {date_obj.strftime('%d/%m/%Y')}.")
         return
 
-    # Ordered output
-    ordered_categories = [
-        "สอนเกม", "ซ่อมซอง", "ซ่อมห่อปก", "เรียนเกม", "[แจ้ง] ซ่อมซอง", "[แจ้ง] ซ่อมปก"
-    ]
-    ordered_work = OrderedDict()
-    for cat in ordered_categories:
+    # Sort categories by predefined order
+    sorted_work = OrderedDict()
+    for cat in category_order:
         if cat in work_dict:
-            ordered_work[cat] = work_dict[cat]
+            sorted_work[cat] = work_dict[cat]
+    # Add any uncategorized at the end
     for cat in work_dict:
-        if cat not in ordered_work:
-            ordered_work[cat] = work_dict[cat]
+        if cat not in sorted_work:
+            sorted_work[cat] = work_dict[cat]
 
-    response = f"📋 งานของ {name_query} วันที่ {today.strftime('%d/%m/%Y')}:\n"
-    for category, games in ordered_work.items():
+    response = f"📋 งานของ {name_query} วันที่ {date_obj.strftime('%d/%m/%Y')}:\n"
+    for category, games in sorted_work.items():
         response += f"{category} [{len(games)}]\n"
         for game in games:
             response += f"{game}\n"
