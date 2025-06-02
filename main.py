@@ -323,68 +323,100 @@ keep_alive()
 async def on_ready():
     print(f'Logged in as {bot.user.name} - {bot.user.id}')
 
-@bot.command(name="w")
+@bot.command()
 async def w(ctx, *, name_query):
     sheet = client.open('NFC').worksheet('Sheet1')
-    data = sheet.get_all_values()[1:]  # skip header row
+    data = sheet.get_all_values()[1:]  # skip header
 
     now = datetime.now()
     today = now.date()
 
-    categories = defaultdict(list)
-
-    # Category order (add new ones after if not listed)
-    category_priority = [
-        "สอนเกม",
-        "ซ่อมซอง",
-        "ซ่อมห่อปก",
-        "เรียนเกม",
-        "[แจ้ง] ซ่อมซอง",
-        "[แจ้ง] ซ่อมปก"
+    category_order = [
+        'สอนเกม',
+        'ซ่อมซอง',
+        'ซ่อมห่อปก',
+        'เรียนเกม',
+        '[แจ้ง] ซ่อมซอง',
+        '[แจ้ง] ซ่อมปก',
     ]
 
-    for row in data:
-        try:
-            timestamp_str = row[0].strip()
-            game = row[1].strip()
-            row_name = row[3].strip()
-            work = row[4].strip() if len(row) > 4 else ""
+    def process_entries(entries):
+        work_dict = defaultdict(list)
+        for row in entries:
+            try:
+                game = row[1].strip()
+                work = row[4].strip()
 
-            # Skip if not today's entry
-            timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-            if timestamp.date() != today:
+                if work == '':
+                    category = 'สอนเกม'
+                else:
+                    category = work
+
+                work_dict[category].append(game)
+            except:
                 continue
 
-            if row_name != name_query.strip():
+        # Ordered output
+        ordered = OrderedDict()
+        for cat in category_order:
+            if cat in work_dict:
+                ordered[cat] = work_dict[cat]
+        for cat in work_dict:
+            if cat not in ordered:
+                ordered[cat] = work_dict[cat]
+        return ordered
+
+    results = ""
+
+    if name_query.strip().lower() == "all":
+        # Build a name -> list of rows map
+        name_map = defaultdict(list)
+        for row in data:
+            try:
+                row_name = row[3].strip()
+                timestamp_str = row[0].strip()
+                timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                if timestamp.date() == today:
+                    name_map[row_name].append(row)
+            except:
                 continue
 
-            category = work if work else "สอนเกม"
-            categories[category].append(game)
+        if not name_map:
+            await ctx.send("ไม่พบงานของทุกคนวันนี้.")
+            return
 
-        except Exception as e:
-            print("Row error:", row, e)
-            continue
+        for name, entries in name_map.items():
+            grouped = process_entries(entries)
+            results += f"\n📋 งานของ {name} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+            for cat, games in grouped.items():
+                results += f"{cat} [{len(games)}]\n"
+                for g in games:
+                    results += f"{g}\n"
+    else:
+        name = name_query.strip()
+        entries = []
+        for row in data:
+            try:
+                row_name = row[3].strip()
+                timestamp_str = row[0].strip()
+                timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                if row_name == name and timestamp.date() == today:
+                    entries.append(row)
+            except:
+                continue
 
-    if not categories:
-        await ctx.send(f"ไม่พบงานของ {name_query.strip()} วันนี้.")
-        return
+        if not entries:
+            await ctx.send(f"ไม่พบงานของ {name} วันนี้.")
+            return
 
-    # Build response message
-    response = f"📋 งานของ {name_query.strip()} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+        grouped = process_entries(entries)
+        results += f"📋 งานของ {name} วันนี้ ({today.strftime('%d/%m/%Y')}):\n"
+        for cat, games in grouped.items():
+            results += f"{cat} [{len(games)}]\n"
+            for g in games:
+                results += f"{g}\n"
 
-    # Sort categories by defined order
-    ordered = OrderedDict()
-    for cat in category_priority:
-        if cat in categories:
-            ordered[cat] = categories.pop(cat)
-    for cat, games in categories.items():
-        ordered[cat] = games  # add remaining categories not in priority list
+    await ctx.send(results)
 
-    for cat, games in ordered.items():
-        response += f"{cat} [{len(games)}]\n"
-        for g in games:
-            response += f"{g}\n"
-
-    await ctx.send(response)
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
