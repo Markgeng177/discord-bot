@@ -32,49 +32,57 @@ def handle_webhook():
         work = data.get('work', '').strip()
 
         async def send_new_message():
-            await bot.wait_until_ready()
-            channel = bot.get_channel(1376569123873493042)
-            if not channel:
-                print("Channel not found")
-                return
-            msg_content = (f"📢 แจ้งเตือนจาก Google Form\n"
-                           f"Timestamps: {timestamp}\n"
-                           f"Game: {game}\n"
-                           f"Branch: {branch}\n"
-                           f"name: {name}\n"
-                           f"Work: {work}")
-            sent_msg = await channel.send(msg_content)
-            print(f"Sent new message ID: {sent_msg.id}")
+    await bot.wait_until_ready()
+    channel = bot.get_channel(1376569123873493042)
+    if not channel:
+        print("Channel not found")
+        return
+
+    msg_content = (f"⏰ {timestamp}\n"
+                   f"🎲 {game}\n"
+                   f"🏠 {branch}\n"
+                   f"🙋‍♀️ {name}\n"
+                   f"🛠️ {work}")
+    sent_msg = await channel.send(msg_content)
+    print(f"Sent new message ID: {sent_msg.id}")
+
+    # Log message ID to Google Sheet
+    try:
+        sheet = client.open("NFC")
+        log_sheet = sheet.worksheet("MessageLog")
+        log_sheet.append_row([str(sent_msg.id), game, branch, timestamp])
+    except Exception as e:
+        print("Error logging message ID to sheet:", e)
+
 
         async def find_and_edit_message_by_game_branch_and_work():
-            await bot.wait_until_ready()
-            channel = bot.get_channel(1376569123873493042)
-            if not channel:
-                print("Channel not found")
-                return False
+    await bot.wait_until_ready()
+    channel = bot.get_channel(1376569123873493042)
+    if not channel:
+        print("Channel not found")
+        return False
 
-            async for msg in channel.history(limit=100):
-                if "📢 แจ้งเตือนจาก Google Form" not in msg.content:
-                    continue
+    try:
+        sheet = client.open("NFC")
+        log_sheet = sheet.worksheet("MessageLog")
+        values = log_sheet.get_all_records()
 
-                lines = msg.content.splitlines()
-                msg_game = ""
-                msg_branch = ""
-                for line in lines:
-                    line = line.strip()
-                    if line.lower().startswith("game:"):
-                        msg_game = line.split(":", 1)[1].strip().lower()
-                    elif line.lower().startswith("branch:"):
-                        msg_branch = line.split(":", 1)[1].strip().lower()
-
-                if msg_game == game.lower().strip() and msg_branch == branch.lower().strip():
-                    updated = f"~~{msg.content}~~\n⭐️{name}"
-                    await msg.edit(content=updated)
-                    print(f"Edited message ID: {msg.id}")
-                    return True
-
-            print("No matching message found to edit.")
+        # Filter messages with matching game and branch, get the most recent one
+        matching = [row for row in reversed(values) if row['game'].strip().lower() == game.lower() and row['branch'].strip().lower() == branch.lower()]
+        if matching:
+            message_id = int(matching[0]['message_id'])
+            msg = await channel.fetch_message(message_id)
+            updated = f"~~{msg.content}~~\n⭐️{name}"
+            await msg.edit(content=updated)
+            print(f"Edited message ID: {message_id}")
+            return True
+        else:
+            print("No matching message found in log.")
             return False
+
+    except Exception as e:
+        print("Error accessing or updating sheet:", e)
+        return False
 
         async def process_message():
             if not work.strip():
