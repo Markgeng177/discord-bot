@@ -332,13 +332,30 @@ async def w(ctx, *, arg):
     sheet = client.open('NFC').worksheet('Sheet1')
     data = sheet.get_all_values()[1:]  # skip header
 
-    # Check if the user supplied a specific date
     parts = arg.strip().split()
+
+    # Determine date and whether it's for "all"
     try:
         if len(parts) > 1 and re.match(r"\d{1,2}[a-zA-Z]{3,9}\d{4}", parts[0]):
             date_part = parts[0]
             name_query = " ".join(parts[1:])
             date_obj = datetime.strptime(date_part, "%d%b%Y").date()
+        elif parts[0].lower() == 'y':
+            name_query = " ".join(parts[1:])
+            date_obj = datetime.now().date() - timedelta(days=1)
+        elif parts[0].lower() == 'all':
+            if len(parts) == 1:
+                date_obj = datetime.now().date()
+                name_query = "all"
+            elif parts[1].lower() == 'y':
+                date_obj = datetime.now().date() - timedelta(days=1)
+                name_query = "all"
+            elif re.match(r"\d{1,2}[a-zA-Z]{3,9}\d{4}", parts[1]):
+                date_obj = datetime.strptime(parts[1], "%d%b%Y").date()
+                name_query = "all"
+            else:
+                await ctx.send("❌ รูปแบบไม่ถูกต้อง เช่น `!w all y` หรือ `!w all 27May2025`")
+                return
         else:
             name_query = arg.strip()
             date_obj = datetime.now().date()
@@ -346,7 +363,6 @@ async def w(ctx, *, arg):
         await ctx.send(f"❌ ไม่สามารถแปลงวันที่จาก `{parts[0]}` ได้ กรุณาใช้รูปแบบ 27May2025")
         return
 
-    # Work categories in desired display order
     category_order = [
         "สอนเกม", "ซ่อมซอง", "ซ่อมห่อปก", "เรียนเกม",
         "[แจ้ง] ซ่อมซอง", "[แจ้ง] ซ่อมปก"
@@ -364,7 +380,8 @@ async def w(ctx, *, arg):
             timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
             if timestamp.date() != date_obj:
                 continue
-            if name != name_query:
+
+            if name_query != "all" and name != name_query:
                 continue
 
             category = "สอนเกม" if not work else work
@@ -374,24 +391,23 @@ async def w(ctx, *, arg):
             continue
 
     if not work_dict:
-        await ctx.send(f"ไม่พบงานของ {name_query} วันที่ {date_obj.strftime('%d/%m/%Y')}.")
+        label = "ทั้งหมด" if name_query == "all" else name_query
+        await ctx.send(f"ไม่พบงานของ {label} วันที่ {date_obj.strftime('%d/%m/%Y')}.")
         return
 
-    # Sort categories by predefined order
     sorted_work = OrderedDict()
     for cat in category_order:
         if cat in work_dict:
             sorted_work[cat] = work_dict[cat]
-    # Add any uncategorized at the end
     for cat in work_dict:
         if cat not in sorted_work:
             sorted_work[cat] = work_dict[cat]
 
-    response = f"📋 งานของ {name_query} วันที่ {date_obj.strftime('%d/%m/%Y')}:\n"
-    for category, games in sorted_work.items():
-        response += f"{category} [{len(games)}]\n"
-        for game in games:
-            response += f"{game}\n"
+    label = "ทั้งหมด" if name_query == "all" else name_query
+    response = f"📋 งานของ {label} วันที่ {date_obj.strftime('%d/%m/%Y')}\n"
+    for cat, games in sorted_work.items():
+        response += f"✅{cat} ({len(games)})\n"
+        response += "\n".join(games) + "\n"
 
     await ctx.send(response)
 
