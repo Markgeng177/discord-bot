@@ -299,33 +299,40 @@ async def w(ctx, date: str, *, name: str):
 
     df = pd.DataFrame(data, columns=headers)
 
-    # Ensure column A (timestamp) is parsed to datetime
+    # Parse timestamps with day first (your date format)
     df[headers[0]] = pd.to_datetime(df[headers[0]], dayfirst=True, errors='coerce')
 
-    # Drop rows where date parsing failed
-    df.dropna(subset=[headers[0]], inplace=True)
+    # Drop rows with invalid timestamps
+    df = df.dropna(subset=[headers[0]])
 
-    # Convert to date only (no time)
+    # Create a date column for filtering
     df['date'] = df[headers[0]].dt.date
+
+    # Normalize names (strip and lower)
+    df[headers[3]] = df[headers[3]].astype(str).str.strip().str.lower()
+    query_name = name.strip().lower()
 
     # Filter by date
     filtered_df = df[df['date'] == date_obj]
 
-    if name.lower() != "all":
-        filtered_df = filtered_df[df[headers[3]].str.lower() == name.lower()]
+    # Filter by name if not 'all'
+    if query_name != "all":
+        filtered_df = filtered_df[filtered_df[headers[3]] == query_name]
 
     if filtered_df.empty:
         await ctx.send(f"❌ ไม่พบงานของ {name} ในวันที่ระบุ")
         return
 
-    # Format and send the result
+    # Format response
     result = ""
     for _, row in filtered_df.iterrows():
         timestamp = row[headers[0]]
-        time_str = pd.to_datetime(timestamp).strftime("%H:%M") if pd.notnull(timestamp) else "-"
+        time_str = timestamp.strftime("%H:%M") if pd.notnull(timestamp) else "-"
         game = row[headers[1]]
         branch = row[headers[2]]
         work = row[headers[4]] if len(row) > 4 else "-"
+        if not work.strip():
+            work = "-"
         result += f"🕒 {time_str} | 🎲 {game} | 🏠 {branch} | 🛠️ {work}\n"
 
     await ctx.send(result)
