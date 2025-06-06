@@ -283,6 +283,8 @@ async def help_command(ctx):
     )
     await ctx.send(help_text)
 
+import pandas as pd  # ✅ You forgot this import earlier
+
 @bot.command()
 async def w(ctx, date: str, *, name: str):
     try:
@@ -319,13 +321,15 @@ async def w(ctx, date: str, *, name: str):
     # Format and send the result
     result = ""
     for _, row in filtered_df.iterrows():
-        time_str = row[headers[0]].split(" ")[1] if " " in row[headers[0]] else "-"
+        timestamp = row[headers[0]]
+        time_str = pd.to_datetime(timestamp).strftime("%H:%M") if pd.notnull(timestamp) else "-"
         game = row[headers[1]]
         branch = row[headers[2]]
         work = row[headers[4]] if len(row) > 4 else "-"
-        result += f"🕒 {time_str} | 🎲 {game} | 📍 {branch} | 📋 {work}\n"
+        result += f"🕒 {time_str} | 🎲 {game} | 🏠 {branch} | 🛠️ {work}\n"
 
-    await ctx.send(f"📅 งานของ **{name}** วันที่ **{date}**\n{result}")
+    await ctx.send(result)
+
 
 
 keep_alive()
@@ -336,4 +340,6 @@ logging.basicConfig(level=logging.INFO)
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
 
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+keep_alive()
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+bot.run(TOKEN)
