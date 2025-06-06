@@ -284,38 +284,49 @@ async def help_command(ctx):
     await ctx.send(help_text)
 
 @bot.command()
-async def w(ctx, *, arg):
-    parts = arg.strip().split()
-    if len(parts) == 0:
-        await ctx.send("❌ กรุณาระบุชื่อ เช่น `!w all` หรือ `!w 27May2025`")
+async def w(ctx, date: str, *, name: str):
+    try:
+        date_obj = datetime.strptime(date, "%d%b%Y").date()
+    except ValueError:
+        await ctx.send("❌ รูปแบบวันที่ไม่ถูกต้อง! กรุณาใช้รูปแบบ เช่น `04Jun2025`")
         return
 
-    if parts[0].lower() == "all":
-        if len(parts) == 1:
-            date_obj = datetime.now().date()
-        elif parts[1].lower() == "y":
-            date_obj = datetime.now().date() - timedelta(days=1)
-        elif re.match(r"\d{1,2}[a-zA-Z]{3,9}\d{4}", parts[1]):
-            date_obj = datetime.strptime(parts[1], "%d%b%Y").date()
-        else:
-            await ctx.send("❌ รูปแบบไม่ถูกต้อง เช่น `!w all y` หรือ `!w all 27May2025`")
-            return
-        await send_work_for_all(ctx, date_obj)
-    else:
-        if parts[0].lower() == "y":
-            date_obj = datetime.now().date() - timedelta(days=1)
-            name = " ".join(parts[1:])
-        elif re.match(r"\d{1,2}[a-zA-Z]{3,9}\d{4}", parts[0]):
-            date_obj = datetime.strptime(parts[0], "%d%b%Y").date()
-            name = " ".join(parts[1:])
-        else:
-            date_obj = datetime.now().date()
-            name = " ".join(parts)
-        result = await send_work_for_name(ctx, name, date_obj)
-        if result:
-            await ctx.send(result)
-        else:
-            await ctx.send(f"❌ ไม่พบงานของ {name} ในวันที่ระบุ")
+    worksheet = sheet.worksheet("Sheet2")
+    data = worksheet.get_all_values()
+    headers = data.pop(0)
+
+    df = pd.DataFrame(data, columns=headers)
+
+    # Ensure column A (timestamp) is parsed to datetime
+    df[headers[0]] = pd.to_datetime(df[headers[0]], dayfirst=True, errors='coerce')
+
+    # Drop rows where date parsing failed
+    df.dropna(subset=[headers[0]], inplace=True)
+
+    # Convert to date only (no time)
+    df['date'] = df[headers[0]].dt.date
+
+    # Filter by date
+    filtered_df = df[df['date'] == date_obj]
+
+    if name.lower() != "all":
+        filtered_df = filtered_df[df[headers[3]].str.lower() == name.lower()]
+
+    if filtered_df.empty:
+        await ctx.send(f"❌ ไม่พบงานของ {name} ในวันที่ระบุ")
+        return
+
+    # Format and send the result
+    result = ""
+    for _, row in filtered_df.iterrows():
+        time_str = row[headers[0]].split(" ")[1] if " " in row[headers[0]] else "-"
+        game = row[headers[1]]
+        branch = row[headers[2]]
+        work = row[headers[4]] if len(row) > 4 else "-"
+        result += f"🕒 {time_str} | 🎲 {game} | 📍 {branch} | 📋 {work}\n"
+
+    await ctx.send(f"📅 งานของ **{name}** วันที่ **{date}**\n{result}")
+
 
 keep_alive()
 
