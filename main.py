@@ -32,57 +32,57 @@ def handle_webhook():
         work = data.get('work', '').strip()
 
         async def send_new_message():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(1376569123873493042)
-    if not channel:
-        print("Channel not found")
-        return
+            await bot.wait_until_ready()
+            channel = bot.get_channel(1376569123873493042)
+            if not channel:
+                print("Channel not found")
+                return
 
-    msg_content = (f"⏰ {timestamp}\n"
-                   f"🎲 {game}\n"
-                   f"🏠 {branch}\n"
-                   f"🙋‍♀️ {name}\n"
-                   f"🛠️ {work}")
-    sent_msg = await channel.send(msg_content)
-    print(f"Sent new message ID: {sent_msg.id}")
+            msg_content = (f"⏰ {timestamp}\n"
+                           f"🎲 {game}\n"
+                           f"🏠 {branch}\n"
+                           f"🙋‍♀️ {name}\n"
+                           f"🛠️ {work}")
+            sent_msg = await channel.send(msg_content)
+            print(f"Sent new message ID: {sent_msg.id}")
 
-    # Log message ID to Google Sheet
-    try:
-        sheet = client.open("NFC")
-        log_sheet = sheet.worksheet("MessageLog")
-        log_sheet.append_row([str(sent_msg.id), game, branch, timestamp])
-    except Exception as e:
-        print("Error logging message ID to sheet:", e)
-
+            try:
+                sheet = client.open("NFC")
+                log_sheet = sheet.worksheet("MessageLog")
+                log_sheet.append_row([str(sent_msg.id), game, branch, timestamp])
+            except Exception as e:
+                print("Error logging message ID to sheet:", e)
 
         async def find_and_edit_message_by_game_branch_and_work():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(1376569123873493042)
-    if not channel:
-        print("Channel not found")
-        return False
+            await bot.wait_until_ready()
+            channel = bot.get_channel(1376569123873493042)
+            if not channel:
+                print("Channel not found")
+                return False
 
-    try:
-        sheet = client.open("NFC")
-        log_sheet = sheet.worksheet("MessageLog")
-        values = log_sheet.get_all_records()
+            try:
+                sheet = client.open("NFC")
+                log_sheet = sheet.worksheet("MessageLog")
+                values = log_sheet.get_all_records()
 
-        # Filter messages with matching game and branch, get the most recent one
-        matching = [row for row in reversed(values) if row['game'].strip().lower() == game.lower() and row['branch'].strip().lower() == branch.lower()]
-        if matching:
-            message_id = int(matching[0]['message_id'])
-            msg = await channel.fetch_message(message_id)
-            updated = f"~~{msg.content}~~\n⭐️{name}"
-            await msg.edit(content=updated)
-            print(f"Edited message ID: {message_id}")
-            return True
-        else:
-            print("No matching message found in log.")
-            return False
+                matching = [row for row in reversed(values)
+                            if row['game'].strip().lower() == game.lower()
+                            and row['branch'].strip().lower() == branch.lower()]
 
-    except Exception as e:
-        print("Error accessing or updating sheet:", e)
-        return False
+                if matching:
+                    message_id = int(matching[0]['message_id'])
+                    msg = await channel.fetch_message(message_id)
+                    updated = f"~~{msg.content}~~\n⭐️{name}"
+                    await msg.edit(content=updated)
+                    print(f"Edited message ID: {message_id}")
+                    return True
+                else:
+                    print("No matching message found in log.")
+                    return False
+
+            except Exception as e:
+                print("Error accessing or updating sheet:", e)
+                return False
 
         async def process_message():
             if not work.strip():
@@ -97,7 +97,6 @@ def handle_webhook():
                     print("No matching message found to edit.")
 
         asyncio.run_coroutine_threadsafe(process_message(), bot.loop)
-
         return '', 200
 
     except Exception as e:
