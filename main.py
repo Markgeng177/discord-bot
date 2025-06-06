@@ -10,6 +10,7 @@ from collections import defaultdict, OrderedDict
 import asyncio
 import json
 import re
+import logging
 
 # --- Keep-alive web server for UptimeRobot and Webhook Receiver ---
 app = Flask('')
@@ -318,6 +319,10 @@ async def w(ctx, *, arg):
 
 keep_alive()
 
+logging.basicConfig(level=logging.INFO)
+
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name} - {bot.user.id}')
+    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
+
+bot.run(os.getenv("DISCORD_BOT_TOKEN"))
