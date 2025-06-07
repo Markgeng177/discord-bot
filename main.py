@@ -192,6 +192,7 @@ async def help_command(ctx):
 
 @bot.command()
 async def w(ctx, *args):
+    sheet = sh.worksheet('Sheet1')  # Your sheet1 reference
     data = sheet.get_all_records()
 
     def parse_date(date_str):
@@ -202,10 +203,6 @@ async def w(ctx, *args):
                 return datetime.strptime(date_str.upper(), '%d%b%Y').date()
             except ValueError:
                 return None
-
-    # Defaults
-    query_date = None
-    query_name = None
 
     if len(args) == 0:
         query_date = datetime.today().date()
@@ -236,28 +233,46 @@ async def w(ctx, *args):
         await ctx.send("❌ Invalid command format.")
         return
 
+    # Filter rows by date and name
     filtered_rows = []
     for row in data:
         try:
             ts_date = datetime.strptime(row['Timestamps'], '%m/%d/%Y %H:%M:%S').date()
         except Exception:
             continue
+
         if ts_date == query_date:
-            if query_name.lower() == 'all':
+            if query_name.lower() == 'all' or row['Name'].lower() == query_name.lower():
                 filtered_rows.append(row)
-            else:
-                if row['Name'].lower() == query_name.lower():
-                    filtered_rows.append(row)
 
     if not filtered_rows:
-        await ctx.send(f"❌ No work data found for `{query_name}` on `{query_date.strftime('%d%b%Y')}`.")
+        await ctx.send(f"❌ ไม่พบข้อมูลงานของ `{query_name}` ในวันที่ `{query_date.strftime('%d/%m/%Y')}`")
         return
 
-    reply = f"**Work logs for {query_name} on {query_date.strftime('%d%b%Y')}:**\n"
-    for r in filtered_rows:
-        reply += f"- {r['Name']} | {r['Game']} {r['Branch']} | {r['Work']}\n"
+    # Group by work -> list of games
+    from collections import defaultdict
 
-    await ctx.send(reply)
+    work_groups = defaultdict(list)
+    for row in filtered_rows:
+        work = row['Work'].strip() or "สอนเกม"
+        game = row.get('Game', '').strip()
+        work_groups[work].append(game)
+
+    # Prepare output message
+    header = f"📋 งานของ {query_name} วันที่ {query_date.strftime('%d/%m/%Y')}"
+    output_lines = [header]
+
+    # Sort works so "สอนเกม" is first if exists
+    sorted_works = sorted(work_groups.keys(), key=lambda w: (w != "สอนเกม", w))
+
+    for work in sorted_works:
+        games = work_groups[work]
+        output_lines.append(f"✅{work} ({len(games)})")
+        for game in games:
+            output_lines.append(game)
+
+    await ctx.send("\n".join(output_lines))
+
 
 
 # Start the web server for UptimeRobot and webhook
