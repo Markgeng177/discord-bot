@@ -18,89 +18,64 @@ def home():
     return "Bot is alive!"
 
 @app.route('/webhook', methods=['POST'])
-def handle_webhook():
-    try:
-        data = request.json
-        if not data or 'work' not in data:
-            return '', 200
+def webhook():
+    data = request.json
+    timestamp = data.get('timestamp')
+    game = data.get('game')
+    branch = data.get('branch')
+    name = data.get('name')
+    work = data.get('work')
 
-        timestamp = data.get('timestamp', 'N/A').strip()
-        game = data.get('game', 'N/A').strip()
-        branch = data.get('branch', 'N/A').strip()
-        name = data.get('name', 'N/A').strip()
-        work = data.get('work', '').strip()
+    if not all([timestamp, game, branch, name, work]):
+        return 'Missing fields', 400
 
-        async def send_new_message():
-            await bot.wait_until_ready()
-            channel = bot.get_channel(1376569123873493042)
-            if not channel:
-                print("Channel not found")
-                return
+    game = game.strip().lower()
+    branch = branch.strip().lower()
+    work_clean = work.replace('[แจ้ง]', '').strip()
+    key = (game, branch, work_clean)
 
-            msg_content = (f"⏰ {timestamp}\n"
-                           f"🎲 {game}\n"
-                           f"🏠 {branch}\n"
-                           f"🙋‍♀️ {name}\n"
-                           f"🛠️ {work}")
-            sent_msg = await channel.send(msg_content)
-            print(f"Sent new message ID: {sent_msg.id}")
+    worksheet2 = sh.worksheet("Sheet2")
+    worksheet3 = sh.worksheet("Sheet3")
 
-            try:
-                sheet = client.open("NFC")
-                log_sheet = sheet.worksheet("MessageLog")
-                log_sheet.append_row([str(sent_msg.id), game, branch, timestamp])
-            except Exception as e:
-                print("Error logging message ID to sheet:", e)
+    if '[แจ้ง]' in work:
+        # ✅ Send new message
+        message_content = f"📌 `{timestamp}` | `{game}` | `{branch}` | `{name}`\n{work}"
+        channel = bot.get_channel(YOUR_CHANNEL_ID)
+        future = asyncio.run_coroutine_threadsafe(channel.send(message_content), bot.loop)
+        message = future.result()
+        
+        # ✅ Save to Sheet3
+        worksheet3.append_row([str(message.id), game, branch, work_clean])
+        print(f"New message sent and saved: {message.id}")
 
-        async def find_and_edit_message_by_game_branch():
-            await bot.wait_until_ready()
-            channel = bot.get_channel(1376569123873493042)
-            if not channel:
-                print("Channel not found")
-                return False
+    else:
+        # 🔄 Try to find latest matching message
+        all_rows = worksheet3.get_all_values()[1:]  # Skip header
+        matching_rows = [
+            row for row in reversed(all_rows)
+            if row[1].strip().lower() == game and
+               row[2].strip().lower() == branch and
+               row[3].strip() == work_clean
+        ]
 
-            try:
-                sheet = client.open("NFC")
-                log_sheet = sheet.worksheet("MessageLog")
-                values = log_sheet.get_all_records()
+        if matching_rows:
+            message_id = int(matching_rows[0][0])
+            channel = bot.get_channel(YOUR_CHANNEL_ID)
+            future = asyncio.run_coroutine_threadsafe(channel.fetch_message(message_id), bot.loop)
+            message = future.result()
 
-                matching = [row for row in reversed(values)
-                            if row['game'].strip().lower() == game.lower()
-                            and row['branch'].strip().lower() == branch.lower()]
+            # 🔄 Edit message
+            old_content = message.content
+            new_content = f"~~{old_content}~~\n⭐ {name}"
+            future = asyncio.run_coroutine_threadsafe(message.edit(content=new_content), bot.loop)
+            future.result()
+            print(f"Edited message ID: {message_id}")
 
-                if matching:
-                    message_id = int(matching[0]['message_id'])
-                    msg = await channel.fetch_message(message_id)
-                    updated = f"~~{msg.content}~~\n⭐️{name}"
-                    await msg.edit(content=updated)
-                    print(f"Edited message ID: {message_id}")
-                    return True
-                else:
-                    print("No matching message found in log.")
-                    return False
+        else:
+            print("No matching message found for edit.")
 
-            except Exception as e:
-                print("Error accessing or updating sheet:", e)
-                return False
+    return 'OK', 200
 
-        async def process_message():
-            if not work.strip():
-                print("Empty work; ignoring")
-                return
-
-            if '[แจ้ง]' in work:
-                await send_new_message()
-            else:
-                edited = await find_and_edit_message_by_game_branch()
-                if not edited:
-                    print("No matching message found to edit.")
-
-        asyncio.run_coroutine_threadsafe(process_message(), bot.loop)
-        return '', 200
-
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return '', 500
 
 def run():
     app.run(host='0.0.0.0', port=8080)
