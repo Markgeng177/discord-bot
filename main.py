@@ -1,7 +1,7 @@
 import os
 import discord
 from discord.ext import commands
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from threading import Thread
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -9,6 +9,10 @@ from datetime import datetime, timedelta
 import asyncio
 import json
 import logging
+import traceback
+
+# --- Discord channel ID ---
+1376569123873493042 = 123456789012345678  # Replace with your actual channel ID as an int
 
 # --- Keep-alive web server and webhook receiver ---
 app = Flask('')
@@ -28,15 +32,15 @@ def webhook():
     name = data.get('name', '').strip()
     work = data.get('work', '').strip()
 
-    if '[แจ้ง]' in work:
-        print("🆕 '[แจ้ง]' found in work, sending new message.")
-        cleaned_work = work.replace('[แจ้ง]', '').strip()
-        message = f"📌 `{timestamp}` | `{game}` | `{branch}`\n👤 {name}\n🛠️ {cleaned_work}"
+    try:
+        if '[แจ้ง]' in work:
+            print("🆕 '[แจ้ง]' found in work, sending new message.")
+            cleaned_work = work.replace('[แจ้ง]', '').strip()
+            message = f"📌 `{timestamp}` | `{game}` | `{branch}`\n👤 {name}\n🛠️ {cleaned_work}"
 
-        channel = bot.get_channel(DISCORD_CHANNEL_ID)
-        if channel:
-            future = asyncio.run_coroutine_threadsafe(channel.send(message), bot.loop)
-            try:
+            channel = bot.get_channel(1376569123873493042)
+            if channel:
+                future = asyncio.run_coroutine_threadsafe(channel.send(message), bot.loop)
                 sent_msg = future.result(timeout=10)
                 print(f"✅ Message sent with ID: {sent_msg.id}")
 
@@ -44,45 +48,50 @@ def webhook():
                 sheet3 = sheet.worksheet("Sheet3")
                 sheet3.append_row([str(sent_msg.id), game.lower(), branch.lower(), cleaned_work.lower()])
                 print("📝 Message ID logged to Sheet3.")
-            except Exception as e:
-                print(f"❌ Failed to send or log message: {e}")
+            else:
+                print(f"❌ Discord channel with ID {1376569123873493042} not found.")
         else:
-            print("❌ Discord channel not found.")
-    else:
-        print("✏️ '[แจ้ง]' not found, attempting to edit existing message.")
-        cleaned_work = work.replace('[แจ้ง]', '').strip()
+            print("✏️ '[แจ้ง]' not found, attempting to edit existing message.")
+            cleaned_work = work.replace('[แจ้ง]', '').strip()
 
-        sheet3 = sheet.worksheet("Sheet3")
-        records = sheet3.get_all_records()
-        target_row = None
-        for idx, row in enumerate(reversed(records)):
-            print(f"🔍 Checking row: {row}")
-            if row['game'].strip().lower() == game.lower() and \
-               row['branch'].strip().lower() == branch.lower() and \
-               row['work'].strip().lower() == cleaned_work.lower():
-                target_row = row
-                break
+            sheet3 = sheet.worksheet("Sheet3")
+            records = sheet3.get_all_records()
+            target_row = None
+            # Since reversed(records) loses original index, enumerate on normal records and remember last match
+            for idx, row in reversed(list(enumerate(records))):
+                print(f"🔍 Checking row: {row}")
+                if row.get('game', '').strip().lower() == game.lower() and \
+                   row.get('branch', '').strip().lower() == branch.lower() and \
+                   row.get('work', '').strip().lower() == cleaned_work.lower():
+                    target_row = row
+                    break
 
-        if target_row:
-            message_id = int(target_row['message_id'])
-            print(f"✏️ Editing message ID: {message_id}")
+            if target_row:
+                message_id = int(target_row['message_id'])
+                print(f"✏️ Editing message ID: {message_id}")
 
-            channel = bot.get_channel(DISCORD_CHANNEL_ID)
-            if channel:
-                try:
-                    future = asyncio.run_coroutine_threadsafe(channel.fetch_message(message_id), bot.loop)
-                    old_msg = future.result(timeout=10)
-                    if old_msg:
-                        new_content = f"~~{old_msg.content}~~\n⭐️ {name}"
-                        future_edit = asyncio.run_coroutine_threadsafe(old_msg.edit(content=new_content), bot.loop)
-                        future_edit.result(timeout=10)
-                        print("✅ Message edited successfully.")
-                    else:
-                        print("❌ Could not fetch the old message.")
-                except Exception as e:
-                    print(f"❌ Error editing message: {e}")
-        else:
-            print("⚠️ No matching message found in Sheet3.")
+                channel = bot.get_channel(1376569123873493042)
+                if channel:
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(channel.fetch_message(message_id), bot.loop)
+                        old_msg = future.result(timeout=10)
+                        if old_msg:
+                            new_content = f"~~{old_msg.content}~~\n⭐️ {name}"
+                            future_edit = asyncio.run_coroutine_threadsafe(old_msg.edit(content=new_content), bot.loop)
+                            future_edit.result(timeout=10)
+                            print("✅ Message edited successfully.")
+                        else:
+                            print("❌ Could not fetch the old message.")
+                    except Exception as e:
+                        print(f"❌ Error editing message: {e}")
+                        traceback.print_exc()
+                else:
+                    print(f"❌ Discord channel with ID {1376569123873493042} not found.")
+            else:
+                print("⚠️ No matching message found in Sheet3.")
+    except Exception as e:
+        print(f"❌ Exception in webhook handling: {e}")
+        traceback.print_exc()
 
     return jsonify({'status': 'ok'})
 
@@ -231,43 +240,26 @@ async def w(ctx, *args):
                 filtered_rows.append(row)
 
     if not filtered_rows:
-        await ctx.send(f"❌ ไม่พบข้อมูลงานของ `{query_name}` ในวันที่ `{query_date.strftime('%d/%m/%Y')}`")
+        await ctx.send("No work found for your query.")
         return
 
-    # Group by work -> list of games
-    from collections import defaultdict
-
-    work_groups = defaultdict(list)
+    response_lines = [f"Work log for {query_name} on {query_date.strftime('%d %b %Y')}:"]
     for row in filtered_rows:
-        work = row['Work'].strip() or "สอนเกม"
-        game = row.get('Game', '').strip()
-        work_groups[work].append(game)
+        response_lines.append(f"- {row['Work']}")
 
-    # Prepare output message
-    header = f"📋 งานของ {query_name} วันที่ {query_date.strftime('%d/%m/%Y')}"
-    output_lines = [header]
+    await ctx.send("\n".join(response_lines))
 
-    # Sort works so "สอนเกม" is first if exists
-    sorted_works = sorted(work_groups.keys(), key=lambda w: (w != "สอนเกม", w))
-
-    for work in sorted_works:
-        games = work_groups[work]
-        output_lines.append(f"✅{work} ({len(games)})")
-        for game in games:
-            output_lines.append(game)
-
-    await ctx.send("\n".join(output_lines))
-
-
-
-# Start the web server for UptimeRobot and webhook
-keep_alive()
-
-logging.basicConfig(level=logging.INFO)
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    print(f"Bot is ready as {bot.user} (ID: {bot.user.id})")
+    channel = bot.get_channel(1376569123873493042)
+    if channel:
+        await channel.send("Bot started and is online!")
+    else:
+        print(f"❌ Could not find channel with ID {1376569123873493042} on ready.")
 
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-bot.run(TOKEN)
+
+if __name__ == '__main__':
+    keep_alive()
+    bot.run(os.getenv('DISCORD_BOT_TOKEN'))
