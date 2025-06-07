@@ -289,79 +289,85 @@ import pandas as pd  # ✅ You forgot this import earlier
 
 @bot.command()
 async def w(ctx, *args):
-    if not args:
-        await ctx.send("❌ Please specify a date or name.")
-        return
-
-    date_str = None
-    name = None
-
-    if len(args) == 1:
+    sheet = sh.worksheet('Sheet1')  # Your sheet1 reference
+    data = sheet.get_all_records()
+    
+    # Helper: parse date string (ddMMMyyyy) case-insensitive month
+    def parse_date(date_str):
+        try:
+            return datetime.strptime(date_str.capitalize(), '%d%b%Y').date()
+        except ValueError:
+            # try uppercase month (e.g. JUN)
+            try:
+                return datetime.strptime(date_str.upper(), '%d%b%Y').date()
+            except ValueError:
+                return None
+    
+    # Default values
+    query_date = None
+    query_name = None
+    
+    # Parse args logic
+    if len(args) == 0:
+        # !w → all for today
+        query_date = datetime.today().date()
+        query_name = 'all'
+    elif len(args) == 1:
         arg = args[0].lower()
-        if arg in ["today", "yesterday"]:
-            date_obj = datetime.datetime.now() if arg == "today" else datetime.datetime.now() - datetime.timedelta(days=1)
-            date_str = date_obj.strftime("%d%b%Y")
-            name = "all"
-        elif arg == "all":
-            date_obj = datetime.datetime.now()
-            date_str = date_obj.strftime("%d%b%Y")
-            name = "all"
+        if arg == 'all':
+            query_date = datetime.today().date()
+            query_name = 'all'
+        elif arg == 'yesterday':
+            query_date = (datetime.today() - timedelta(days=1)).date()
+            query_name = 'all'
         else:
-            date_obj = datetime.datetime.now()
-            date_str = date_obj.strftime("%d%b%Y")
-            name = arg
+            # single arg treated as name, date = today
+            query_date = datetime.today().date()
+            query_name = args[0]
     elif len(args) == 2:
         date_arg = args[0].lower()
-        name_arg = args[1].lower()
-
-        if date_arg in ["today", "yesterday"]:
-            date_obj = datetime.datetime.now() if date_arg == "today" else datetime.datetime.now() - datetime.timedelta(days=1)
-            date_str = date_obj.strftime("%d%b%Y")
+        name_arg = args[1]
+        
+        if date_arg == 'yesterday':
+            query_date = (datetime.today() - timedelta(days=1)).date()
         else:
-            try:
-                date_obj = datetime.datetime.strptime(date_arg, "%d%b%Y")
-                date_str = date_obj.strftime("%d%b%Y")
-            except ValueError:
+            query_date = parse_date(date_arg)
+            if query_date is None:
                 await ctx.send("❌ Invalid date format. Use ddMMMyyyy, e.g. 05Jun2025.")
                 return
-
-        name = name_arg
+        query_name = name_arg
     else:
-        await ctx.send("❌ Too many arguments.")
+        await ctx.send("❌ Invalid command format.")
         return
-
-    try:
-        worksheet = sheet.worksheet('Sheet1')
-        records = worksheet.get_all_records()
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-        return
-
-    output = []
-    for row in records:
-        timestamp = row.get("Timestamps", "")
-        game = row.get("Game", "")
-        branch = row.get("Branch", "")
-        person = row.get("Name", "")
-        work = row.get("Work", "")
-        if not timestamp:
-            continue
+    
+    # Filter data by date
+    filtered_rows = []
+    for row in data:
+        # Parse timestamp date
         try:
-            ts_date = datetime.datetime.strptime(timestamp, "%d/%m/%Y %H:%M:%S")
-            row_date = ts_date.strftime("%d%b%Y")
-        except ValueError:
+            ts_date = datetime.strptime(row['Timestamps'], '%m/%d/%Y %H:%M:%S').date()
+        except Exception:
+            # try alternative format if needed here, or skip row
             continue
-
-        if row_date == date_str and (name == "all" or name == person.lower()):
-            output.append(f"🕐 {ts_date.strftime('%H:%M')} | 🎮 {game} | 🧩 {branch} | 👤 {person} | {work}")
-
-    if output:
-        display_name = "everyone" if name == "all" else name
-        await ctx.send(f"📅 **{date_str}** log for **{display_name}**\n" + "\n".join(output))
-    else:
-        await ctx.send(f"📅 No records found for **{date_str}** and name **{name}**.")
-
-
+        
+        if ts_date == query_date:
+            # filter by name or all
+            if query_name.lower() == 'all':
+                filtered_rows.append(row)
+            else:
+                if row['Name'].lower() == query_name.lower():
+                    filtered_rows.append(row)
+    
+    if not filtered_rows:
+        await ctx.send(f"❌ No work data found for `{query_name}` on `{query_date.strftime('%d%b%Y')}`.")
+        return
+    
+    # Build reply message
+    reply = f"**Work logs for {query_name} on {query_date.strftime('%d%b%Y')}:**\n"
+    for r in filtered_rows:
+        reply += f"- {r['Name']} | {r['Game']} {r['Branch']} | {r['Work']}\n"
+    
+    await ctx.send(reply)
 
 
 keep_alive()
