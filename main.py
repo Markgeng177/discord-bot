@@ -6,14 +6,11 @@ from threading import Thread
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
-from collections import defaultdict, OrderedDict
 import asyncio
 import json
-import re
 import logging
-import pytz
 
-# --- Keep-alive web server for UptimeRobot and Webhook Receiver ---
+# --- Keep-alive web server and webhook receiver ---
 app = Flask('')
 
 @app.route('/')
@@ -55,7 +52,7 @@ def handle_webhook():
             except Exception as e:
                 print("Error logging message ID to sheet:", e)
 
-        async def find_and_edit_message_by_game_branch_and_work():
+        async def find_and_edit_message_by_game_branch():
             await bot.wait_until_ready()
             channel = bot.get_channel(1376569123873493042)
             if not channel:
@@ -94,7 +91,7 @@ def handle_webhook():
             if '[แจ้ง]' in work:
                 await send_new_message()
             else:
-                edited = await find_and_edit_message_by_game_branch_and_work()
+                edited = await find_and_edit_message_by_game_branch()
                 if not edited:
                     print("No matching message found to edit.")
 
@@ -111,6 +108,7 @@ def run():
 def keep_alive():
     Thread(target=run).start()
 
+
 # --- Google Sheets setup ---
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -125,110 +123,16 @@ client = gspread.authorize(creds)
 sh = client.open("NFC")
 sheet = sh.worksheet("Sheet1")
 
+
 # --- Discord bot setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 bot.remove_command('help')
 
+
 def format_work_line(work, count):
     return f"✅{work} ({count})"
-
-async def send_work_for_name(ctx, name: str, target_date: datetime):
-    data = sheet.get_all_records()
-    today_date = target_date.day
-    today_month = target_date.strftime("%B")
-    today_year = target_date.year
-    filtered = []
-    for row in data:
-        try:
-            sheet_year = int(row['Year'])
-            if sheet_year < 100:
-                sheet_year += 2000
-            sheet_date = int(row['Date'])
-            sheet_month = row['Month'].strip()
-        except:
-            continue
-        if (row['Name'].strip().lower() == name.strip().lower()
-                and sheet_date == today_date and sheet_month == today_month
-                and sheet_year == today_year):
-            filtered.append(row)
-    if not filtered:
-        return None
-    work_order = []
-    work_to_games = {}
-    for row in filtered:
-        work_val = str(row['Work']).strip()
-        if work_val == "" or work_val.lower() == "none":
-            work_val = "สอนเกม"
-        if work_val not in work_to_games:
-            work_order.append(work_val)
-            work_to_games[work_val] = []
-        work_to_games[work_val].append(row['Game'])
-    if "สอนเกม" in work_order:
-        work_order.remove("สอนเกม")
-        work_order.insert(0, "สอนเกม")
-    response_lines = [f"⭐️{name.strip()}"]
-    for work in work_order:
-        count = len(work_to_games[work])
-        response_lines.append(format_work_line(work, count))
-        response_lines.extend(work_to_games[work])
-    return "\n".join(response_lines)
-
-async def send_work_for_all(ctx, target_date: datetime):
-    data = sheet.get_all_records()
-    today_date = target_date.day
-    today_month = target_date.strftime("%B")
-    today_year = target_date.year
-    per_user = {}
-    all_work_order = []
-    all_work_to_games = {}
-    for row in data:
-        try:
-            sheet_year = int(row['Year'])
-            if sheet_year < 100:
-                sheet_year += 2000
-            sheet_date = int(row['Date'])
-            sheet_month = row['Month'].strip()
-        except:
-            continue
-        if (sheet_date == today_date and sheet_month == today_month
-                and sheet_year == today_year):
-            name = row['Name'].strip()
-            work_val = str(row['Work']).strip()
-            if work_val == "" or work_val.lower() == "none":
-                work_val = "สอนเกม"
-            if name not in per_user:
-                per_user[name] = {}
-            if work_val not in per_user[name]:
-                per_user[name][work_val] = []
-            per_user[name][work_val].append(row['Game'])
-            if work_val not in all_work_to_games:
-                all_work_order.append(work_val)
-                all_work_to_games[work_val] = []
-            all_work_to_games[work_val].append(row['Game'])
-    if not all_work_order:
-        await ctx.send("No work found for all names on this date.")
-        return
-    if "สอนเกม" in all_work_order:
-        all_work_order.remove("สอนเกม")
-        all_work_order.insert(0, "สอนเกม")
-    response_lines = ["⭐️all"]
-    for work in all_work_order:
-        count = len(all_work_to_games[work])
-        response_lines.append(format_work_line(work, count))
-        response_lines.extend(all_work_to_games[work])
-    for name, works in per_user.items():
-        response_lines.append(f"⭐️{name}")
-        work_keys = list(works.keys())
-        if "สอนเกม" in work_keys:
-            work_keys.remove("สอนเกม")
-            work_keys.insert(0, "สอนเกม")
-        for work in work_keys:
-            count = len(works[work])
-            response_lines.append(format_work_line(work, count))
-            response_lines.extend(works[work])
-    await ctx.send("\n".join(response_lines))
 
 @bot.command()
 async def ping(ctx):
@@ -285,31 +189,25 @@ async def help_command(ctx):
     )
     await ctx.send(help_text)
 
-import pandas as pd  # ✅ You forgot this import earlier
 
 @bot.command()
 async def w(ctx, *args):
-    sheet = sh.worksheet('Sheet1')  # Your sheet1 reference
     data = sheet.get_all_records()
-    
-    # Helper: parse date string (ddMMMyyyy) case-insensitive month
+
     def parse_date(date_str):
         try:
             return datetime.strptime(date_str.capitalize(), '%d%b%Y').date()
         except ValueError:
-            # try uppercase month (e.g. JUN)
             try:
                 return datetime.strptime(date_str.upper(), '%d%b%Y').date()
             except ValueError:
                 return None
-    
-    # Default values
+
+    # Defaults
     query_date = None
     query_name = None
-    
-    # Parse args logic
+
     if len(args) == 0:
-        # !w → all for today
         query_date = datetime.today().date()
         query_name = 'all'
     elif len(args) == 1:
@@ -321,13 +219,11 @@ async def w(ctx, *args):
             query_date = (datetime.today() - timedelta(days=1)).date()
             query_name = 'all'
         else:
-            # single arg treated as name, date = today
             query_date = datetime.today().date()
             query_name = args[0]
     elif len(args) == 2:
         date_arg = args[0].lower()
         name_arg = args[1]
-        
         if date_arg == 'yesterday':
             query_date = (datetime.today() - timedelta(days=1)).date()
         else:
@@ -339,37 +235,32 @@ async def w(ctx, *args):
     else:
         await ctx.send("❌ Invalid command format.")
         return
-    
-    # Filter data by date
+
     filtered_rows = []
     for row in data:
-        # Parse timestamp date
         try:
             ts_date = datetime.strptime(row['Timestamps'], '%m/%d/%Y %H:%M:%S').date()
         except Exception:
-            # try alternative format if needed here, or skip row
             continue
-        
         if ts_date == query_date:
-            # filter by name or all
             if query_name.lower() == 'all':
                 filtered_rows.append(row)
             else:
                 if row['Name'].lower() == query_name.lower():
                     filtered_rows.append(row)
-    
+
     if not filtered_rows:
         await ctx.send(f"❌ No work data found for `{query_name}` on `{query_date.strftime('%d%b%Y')}`.")
         return
-    
-    # Build reply message
+
     reply = f"**Work logs for {query_name} on {query_date.strftime('%d%b%Y')}:**\n"
     for r in filtered_rows:
         reply += f"- {r['Name']} | {r['Game']} {r['Branch']} | {r['Work']}\n"
-    
+
     await ctx.send(reply)
 
 
+# Start the web server for UptimeRobot and webhook
 keep_alive()
 
 logging.basicConfig(level=logging.INFO)
@@ -378,6 +269,5 @@ logging.basicConfig(level=logging.INFO)
 async def on_ready():
     print(f'Logged in as {bot.user} (ID: {bot.user.id})')
 
-keep_alive()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 bot.run(TOKEN)
