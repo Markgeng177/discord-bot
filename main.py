@@ -20,61 +20,71 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.json
-    timestamp = data.get('timestamp')
-    game = data.get('game')
-    branch = data.get('branch')
-    name = data.get('name')
-    work = data.get('work')
+    print("📥 Webhook received:", data)
 
-    if not all([timestamp, game, branch, name, work]):
-        return 'Missing fields', 400
-
-    game = game.strip().lower()
-    branch = branch.strip().lower()
-    work_clean = work.replace('[แจ้ง]', '').strip()
-    key = (game, branch, work_clean)
-
-    worksheet2 = sh.worksheet("Sheet2")
-    worksheet3 = sh.worksheet("Sheet3")
+    timestamp = data.get('timestamp', '')
+    game = data.get('game', '').strip()
+    branch = data.get('branch', '').strip()
+    name = data.get('name', '').strip()
+    work = data.get('work', '').strip()
 
     if '[แจ้ง]' in work:
-        # ✅ Send new message
-        message_content = f"📌 `{timestamp}` | `{game}` | `{branch}` | `{name}`\n{work}"
-        channel = bot.get_channel(YOUR_CHANNEL_ID)
-        future = asyncio.run_coroutine_threadsafe(channel.send(message_content), bot.loop)
-        message = future.result()
-        
-        # ✅ Save to Sheet3
-        worksheet3.append_row([str(message.id), game, branch, work_clean])
-        print(f"New message sent and saved: {message.id}")
+        print("🆕 '[แจ้ง]' found in work, sending new message.")
+        cleaned_work = work.replace('[แจ้ง]', '').strip()
+        message = f"📌 `{timestamp}` | `{game}` | `{branch}`\n👤 {name}\n🛠️ {cleaned_work}"
 
-    else:
-        # 🔄 Try to find latest matching message
-        all_rows = worksheet3.get_all_values()[1:]  # Skip header
-        matching_rows = [
-            row for row in reversed(all_rows)
-            if row[1].strip().lower() == game and
-               row[2].strip().lower() == branch and
-               row[3].strip() == work_clean
-        ]
+        channel = bot.get_channel(DISCORD_CHANNEL_ID)
+        if channel:
+            future = asyncio.run_coroutine_threadsafe(channel.send(message), bot.loop)
+            try:
+                sent_msg = future.result(timeout=10)
+                print(f"✅ Message sent with ID: {sent_msg.id}")
 
-        if matching_rows:
-            message_id = int(matching_rows[0][0])
-            channel = bot.get_channel(YOUR_CHANNEL_ID)
-            future = asyncio.run_coroutine_threadsafe(channel.fetch_message(message_id), bot.loop)
-            message = future.result()
-
-            # 🔄 Edit message
-            old_content = message.content
-            new_content = f"~~{old_content}~~\n⭐ {name}"
-            future = asyncio.run_coroutine_threadsafe(message.edit(content=new_content), bot.loop)
-            future.result()
-            print(f"Edited message ID: {message_id}")
-
+                # Log in Sheet3
+                sheet3 = sheet.worksheet("Sheet3")
+                sheet3.append_row([str(sent_msg.id), game.lower(), branch.lower(), cleaned_work.lower()])
+                print("📝 Message ID logged to Sheet3.")
+            except Exception as e:
+                print(f"❌ Failed to send or log message: {e}")
         else:
-            print("No matching message found for edit.")
+            print("❌ Discord channel not found.")
+    else:
+        print("✏️ '[แจ้ง]' not found, attempting to edit existing message.")
+        cleaned_work = work.replace('[แจ้ง]', '').strip()
 
-    return 'OK', 200
+        sheet3 = sheet.worksheet("Sheet3")
+        records = sheet3.get_all_records()
+        target_row = None
+        for idx, row in enumerate(reversed(records)):
+            print(f"🔍 Checking row: {row}")
+            if row['game'].strip().lower() == game.lower() and \
+               row['branch'].strip().lower() == branch.lower() and \
+               row['work'].strip().lower() == cleaned_work.lower():
+                target_row = row
+                break
+
+        if target_row:
+            message_id = int(target_row['message_id'])
+            print(f"✏️ Editing message ID: {message_id}")
+
+            channel = bot.get_channel(DISCORD_CHANNEL_ID)
+            if channel:
+                try:
+                    future = asyncio.run_coroutine_threadsafe(channel.fetch_message(message_id), bot.loop)
+                    old_msg = future.result(timeout=10)
+                    if old_msg:
+                        new_content = f"~~{old_msg.content}~~\n⭐️ {name}"
+                        future_edit = asyncio.run_coroutine_threadsafe(old_msg.edit(content=new_content), bot.loop)
+                        future_edit.result(timeout=10)
+                        print("✅ Message edited successfully.")
+                    else:
+                        print("❌ Could not fetch the old message.")
+                except Exception as e:
+                    print(f"❌ Error editing message: {e}")
+        else:
+            print("⚠️ No matching message found in Sheet3.")
+
+    return jsonify({'status': 'ok'})
 
 
 def run():
