@@ -288,74 +288,78 @@ async def help_command(ctx):
 import pandas as pd  # ✅ You forgot this import earlier
 
 @bot.command()
-async def w(ctx, *, arg=None):
-    sheet1 = sh.worksheet("Sheet1")
-    sheet2 = sh.worksheet("Sheet2")
+async def w(ctx, *args):
+    if not args:
+        await ctx.send("❌ Please specify a date or name.")
+        return
+
+    date_str = None
+    name = None
+
+    if len(args) == 1:
+        arg = args[0].lower()
+        if arg in ["today", "yesterday"]:
+            date_obj = datetime.datetime.now() if arg == "today" else datetime.datetime.now() - datetime.timedelta(days=1)
+            date_str = date_obj.strftime("%d%b%Y")
+            name = "all"
+        elif arg == "all":
+            date_obj = datetime.datetime.now()
+            date_str = date_obj.strftime("%d%b%Y")
+            name = "all"
+        else:
+            date_obj = datetime.datetime.now()
+            date_str = date_obj.strftime("%d%b%Y")
+            name = arg
+    elif len(args) == 2:
+        date_arg = args[0].lower()
+        name_arg = args[1].lower()
+
+        if date_arg in ["today", "yesterday"]:
+            date_obj = datetime.datetime.now() if date_arg == "today" else datetime.datetime.now() - datetime.timedelta(days=1)
+            date_str = date_obj.strftime("%d%b%Y")
+        else:
+            try:
+                date_obj = datetime.datetime.strptime(date_arg, "%d%b%Y")
+                date_str = date_obj.strftime("%d%b%Y")
+            except ValueError:
+                await ctx.send("❌ Invalid date format. Use ddMMMyyyy, e.g. 05Jun2025.")
+                return
+
+        name = name_arg
+    else:
+        await ctx.send("❌ Too many arguments.")
+        return
 
     try:
-        today = datetime.now(pytz.timezone('Asia/Bangkok')).date()
-
-        if not arg or arg.lower() == "today":
-            target_date = today
-            name_filter = None
-            use_sheet2 = False
-        elif arg.lower() == "yesterday":
-            target_date = today - timedelta(days=1)
-            name_filter = None
-            use_sheet2 = False
-        else:
-            parts = arg.split()
-            try:
-                target_date = datetime.strptime(parts[0], "%d%b%Y").date()
-            except:
-                await ctx.send("❌ Invalid date format. Use `ddMMMyyyy`, e.g. `05Jun2025`.")
-                return
-            name_filter = parts[1] if len(parts) > 1 and parts[1].lower() != "all" else None
-            use_sheet2 = True
-
-        if use_sheet2:
-            records = sheet2.get_all_records()
-            filtered = [r for r in records if datetime.strptime(r['Date'], "%d/%m/%Y").date() == target_date]
-            if name_filter:
-                filtered = [r for r in filtered if r['Name'].strip().lower() == name_filter.strip().lower()]
-            if not filtered:
-                await ctx.send("❌ No records found.")
-                return
-
-            msg = f"📅 Work on {target_date.strftime('%d %b %Y')}:\n"
-            people = {}
-            for r in filtered:
-                name = r['Name'].strip()
-                work = r['Work'].strip()
-                game = r['Game'].strip()
-                if name not in people:
-                    people[name] = {}
-                if work not in people[name]:
-                    people[name][work] = []
-                people[name][work].append(game)
-
-            for name, work_dict in people.items():
-                msg += f"\n⭐️{name}"
-                for work, games in work_dict.items():
-                    msg += f"\n✅{work} ({len(games)})"
-                    for g in games:
-                        msg += f"\n{g}"
-            await ctx.send(msg)
-            return
-
-        # Fallback to old logic for Sheet1
-        if name_filter:
-            result = await send_work_for_name(ctx, name_filter, target_date)
-            if result:
-                await ctx.send(result)
-            else:
-                await ctx.send(f"❌ No work found for {name_filter} on {target_date.strftime('%d %b %Y')}.")
-        else:
-            await send_work_for_all(ctx, target_date)
-
+        worksheet = sheet.worksheet('Sheet1')
+        records = worksheet.get_all_records()
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
+        return
 
+    output = []
+    for row in records:
+        timestamp = row.get("Timestamps", "")
+        game = row.get("Game", "")
+        branch = row.get("Branch", "")
+        person = row.get("Name", "")
+        work = row.get("Work", "")
+        if not timestamp:
+            continue
+        try:
+            ts_date = datetime.datetime.strptime(timestamp, "%d/%m/%Y %H:%M:%S")
+            row_date = ts_date.strftime("%d%b%Y")
+        except ValueError:
+            continue
+
+        if row_date == date_str and (name == "all" or name == person.lower()):
+            output.append(f"🕐 {ts_date.strftime('%H:%M')} | 🎮 {game} | 🧩 {branch} | 👤 {person} | {work}")
+
+    if output:
+        display_name = "everyone" if name == "all" else name
+        await ctx.send(f"📅 **{date_str}** log for **{display_name}**\n" + "\n".join(output))
+    else:
+        await ctx.send(f"📅 No records found for **{date_str}** and name **{name}**.")
 
 
 
